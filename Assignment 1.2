@@ -1,0 +1,474 @@
+FEE 3231 – Artificial Intelligence
+Assignment 1-2
+Name: Xerxes Nyamarika
+Reg No: FEE3/8570/2024
+Programme: BSc Electrical & Electronic Engineering
+Faculty: Faculty of Engineering
+University: University of Nairobi
+Lecturer: Mr. Oscar
+Submission Date: Saturday, 29th November 2025
+
+This notebook contains the completed solutions for Assignment 1-2 (GBFS and A* agents). All code cells are implemented and unit tests are included.
+
+NAME = "Xerxes Nyamarika  (Reg: FEE3/8570/2024)"
+COLLABORATORS = "None"
+# Environment implementation
+import random
+from IPython.display import clear_output
+import matplotlib.pyplot as plt
+import numpy as np
+from time import sleep
+from collections import deque
+import unittest
+from queue import PriorityQueue
+
+class Environment:
+    def __init__(self, width=5, height=5, dirt_positions=None, obstacle_positions=None, goal_positions=None, sleep_time=0.5):
+        self.sleep_time = sleep_time
+        self.explored_positions = []
+        self.width = width
+        self.height = height
+        self.dirt_positions = dirt_positions if dirt_positions is not None else []
+        self.obstacle_positions = obstacle_positions if obstacle_positions is not None else []
+        self.goal_positions = goal_positions if goal_positions is not None else []
+        self.agent_position = (0, 0)
+
+    def is_valid_position(self, position):
+        x, y = position
+        if x < 0 or y < 0 or x >= self.width or y >= self.height:
+            return False
+        if position in self.obstacle_positions:
+            return False
+        return True
+
+    def get_percepts(self):
+        return {
+            "dirt": self.agent_position in self.dirt_positions,
+            "goal": self.agent_position in self.goal_positions
+        }
+
+    def update_agent_position(self, action):
+        x, y = self.agent_position
+        moves = {
+            "Up":    (x, y + 1),
+            "Down":  (x, y - 1),
+            "Left":  (x - 1, y),
+            "Right": (x + 1, y)
+        }
+        if action in moves:
+            new_pos = moves[action]
+            if self.is_valid_position(new_pos):
+                self.agent_position = new_pos
+
+    def clean_dirt(self):
+        if self.agent_position in self.dirt_positions:
+            self.dirt_positions.remove(self.agent_position)
+
+    def check_goal(self):
+        return self.agent_position in self.goal_positions
+
+    def mark_explored(self, position):
+        if position not in self.explored_positions:
+            self.explored_positions.append(position)
+
+    def display(self):
+        if self.sleep_time == 0:
+            return
+        fig, ax = plt.subplots(figsize=(self.width, self.height))
+        ax.set_xticks(np.arange(0, self.width, 1))
+        ax.set_yticks(np.arange(0, self.height, 1))
+        ax.grid(True)
+        ax.set_facecolor('lightgrey')
+        for x, y in self.dirt_positions:
+            ax.add_patch(plt.Rectangle((x, y), 1, 1, color="brown"))
+        for x, y in self.obstacle_positions:
+            ax.add_patch(plt.Rectangle((x, y), 1, 1, color="black"))
+        for x, y in self.goal_positions:
+            ax.add_patch(plt.Rectangle((x, y), 1, 1, color="green"))
+        for x, y in self.explored_positions:
+            ax.add_patch(plt.Rectangle((x, y), 1, 1, color="yellow"))
+        ax.add_patch(plt.Rectangle(self.agent_position, 1, 1, color="blue"))
+        plt.xlim(0, self.width)
+        plt.ylim(0, self.height)
+        sleep(self.sleep_time)
+        clear_output(wait=True)
+        plt.show()
+# Task 1 tests
+class TestEnvironment(unittest.TestCase):
+    def test_initialization(self):
+        env = Environment()
+        self.assertEqual(env.width, 5)
+        self.assertEqual(env.height, 5)
+        self.assertEqual(env.dirt_positions, [])
+        self.assertEqual(env.obstacle_positions, [])
+        self.assertEqual(env.goal_positions, [])
+        self.assertEqual(env.agent_position, (0, 0))
+
+    def test_is_valid_position(self):
+        env = Environment()
+        self.assertTrue(env.is_valid_position((0, 0)))
+        self.assertFalse(env.is_valid_position((-1, 0)))
+        self.assertFalse(env.is_valid_position((5, 5)))
+
+suite = unittest.TestLoader().loadTestsFromTestCase(TestEnvironment)
+unittest.TextTestRunner().run(suite)
+from collections import deque
+
+class GoalBasedAgent:
+    def __init__(self, goal_position, strategy='BFS', env=None):
+        self.plan = []
+        self.goal_position = goal_position
+        self.strategy = strategy
+        self.env = env
+
+    def get_neighbors(self, position):
+        x, y = position
+        return [(x, y+1), (x+1, y), (x, y-1), (x-1, y)]
+
+    def get_direction(self, current, target):
+        cx, cy = current
+        tx, ty = target
+        if tx > cx: return "Right"
+        if tx < cx: return "Left"
+        if ty > cy: return "Up"
+        if ty < cy: return "Down"
+        return None
+
+    def plan_path(self, start, goal):
+        if self.strategy == 'BFS':
+            frontier = deque([start])
+        else:
+            frontier = [start]
+        came_from = {start: None}
+
+        while frontier:
+            if self.strategy == 'BFS':
+                current = frontier.popleft()
+            else:
+                current = frontier.pop()
+
+            if self.env is not None:
+                self.env.mark_explored(current)
+                self.env.display()
+
+            if current == goal:
+                path_positions = []
+                cur = current
+                while cur is not None:
+                    path_positions.append(cur)
+                    cur = came_from[cur]
+                path_positions.reverse()
+                actions = []
+                for i in range(len(path_positions)-1):
+                    actions.append(self.get_direction(path_positions[i], path_positions[i+1]))
+                return actions
+
+            for neighbor in self.get_neighbors(current):
+                # bounds check
+                if self.env is not None:
+                    if not (0 <= neighbor[0] < self.env.width and 0 <= neighbor[1] < self.env.height):
+                        continue
+                    if not self.env.is_valid_position(neighbor):
+                        continue
+                if neighbor not in came_from:
+                    came_from[neighbor] = current
+                    frontier.append(neighbor)
+        return []
+
+    def act(self, position):
+        if not self.plan:
+            self.plan = self.plan_path(position, self.goal_position)
+        if self.plan:
+            return self.plan.pop(0)
+        return "NoOp"
+# Task 2 tests
+env = Environment(
+    width=5,
+    height=5,
+    dirt_positions=[],
+    obstacle_positions=[(1, 0), (1, 1), (1, 2), (1, 3), (2, 3), (3, 3), (4, 3)],
+    goal_positions=[(4, 4)],
+    sleep_time=0
+)
+
+class TestGoalBasedAgent(unittest.TestCase):
+    def test_plan_path(self):
+        agent = GoalBasedAgent(goal_position=(4, 4), strategy='BFS', env=env)
+        start = (0, 0)
+        goal = (4, 4)
+        path = agent.plan_path(start, goal)
+        correct_path = ['Up', 'Up', 'Up', 'Up', 'Right', 'Right', 'Right', 'Right']
+        assert path == correct_path, f"Expected {correct_path}, got {path}"
+        assert isinstance(path, list)
+        assert len(path) > 0
+
+suite = unittest.TestLoader().loadTestsFromTestCase(TestGoalBasedAgent)
+unittest.TextTestRunner().run(suite)
+# Task 3 interaction example (sleep_time set to 0 for quick run)
+goal_pos = (11, 6)
+env = Environment(
+    width=12,
+    height=7,
+    dirt_positions=[],
+    obstacle_positions=[(4, 0), (5, 0),
+                        (0, 1), (1, 1), (2, 1), (4, 1), (5, 1), (7, 1), (8, 1), (9, 1), (10, 1), (11, 1),
+                        (0, 2), (5, 2), (7, 2),
+                        (0, 3), (2, 3), (3, 3), (5, 3), (7, 3), (9, 3), (10, 3),
+                        (3, 4), (5, 4),(9, 4), (10, 4),
+                        (1, 5), (3, 5), (7, 5), (9, 5), (10, 5),
+                        (1, 6), (3, 6), (5, 6), (6, 6), (7, 6), (10, 6)
+                       ],
+    goal_positions=[goal_pos],
+    sleep_time=0
+)
+
+agent = GoalBasedAgent(goal_position=goal_pos, strategy='BFS', env=env)
+
+steps = 0
+max_steps = 100
+while not env.check_goal() and steps < max_steps:
+    print(f"Step {steps + 1}: Agent at {env.agent_position}")
+    env.display()
+    position = env.agent_position
+    action = agent.act(position)
+    print(f"Action: {action}")
+    if action == 'NoOp':
+        break
+    if action == 'Suck':
+        env.clean_dirt()
+    else:
+        env.update_agent_position(action)
+    steps += 1
+
+if env.check_goal():
+    env.display()
+    print(f"Agent reached the goal in {steps} steps.")
+else:
+    print(f"Agent did not reach the goal within {max_steps} steps.")
+from queue import PriorityQueue
+
+class GBFS_Agent:
+    def __init__(self, goal_position, env=None):
+        self.goal_position = goal_position
+        self.env = env
+        self.plan = []
+
+    def heuristic(self, position):
+        x, y = position
+        gx, gy = self.goal_position
+        return abs(x - gx) + abs(y - gy)
+
+    def get_neighbors(self, position):
+        x, y = position
+        return [(x, y+1), (x+1, y), (x, y-1), (x-1, y)]
+
+    def get_direction(self, current, target):
+        cx, cy = current
+        tx, ty = target
+        if tx > cx: return "Right"
+        if tx < cx: return "Left"
+        if ty > cy: return "Up"
+        if ty < cy: return "Down"
+        return None
+
+    def plan_path(self, start, goal):
+        pq = PriorityQueue()
+        pq.put((self.heuristic(start), start))
+        came_from = {start: None}
+        visited = set([start])
+
+        while not pq.empty():
+            _, current = pq.get()
+
+            if self.env is not None:
+                self.env.mark_explored(current)
+                self.env.display()
+
+            if current == goal:
+                path_positions = []
+                cur = current
+                while cur is not None:
+                    path_positions.append(cur)
+                    cur = came_from[cur]
+                path_positions.reverse()
+                actions = []
+                for i in range(len(path_positions)-1):
+                    actions.append(self.get_direction(path_positions[i], path_positions[i+1]))
+                return actions
+
+            for neighbor in self.get_neighbors(current):
+                if self.env is not None:
+                    if not (0 <= neighbor[0] < self.env.width and 0 <= neighbor[1] < self.env.height):
+                        continue
+                    if not self.env.is_valid_position(neighbor):
+                        continue
+                if neighbor not in visited:
+                    visited.add(neighbor)
+                    came_from[neighbor] = current
+                    pq.put((self.heuristic(neighbor), neighbor))
+        return []
+
+    def act(self, position):
+        if not self.plan:
+            self.plan = self.plan_path(position, self.goal_position)
+        if self.plan:
+            return self.plan.pop(0)
+        return "NoOp"
+goal_pos = (4, 4)
+env = Environment(
+    width=5,
+    height=5,
+    dirt_positions=[],
+    obstacle_positions=[(2, 2), (2, 3)],
+    goal_positions=[goal_pos],
+    sleep_time=0
+)
+
+class TestGBFS_Agent(unittest.TestCase):
+    def test_utility(self):
+        agent = GBFS_Agent(goal_position=goal_pos)
+        position = (0, 0)
+        utility = agent.heuristic(position)
+        assert isinstance(utility, (int, float))
+
+    def test_act(self):
+        agent = GBFS_Agent(goal_position=goal_pos, env=env)
+        position = (0, 0)
+        action = agent.act(position)
+        assert action in ['Up', 'Down', 'Left', 'Right', 'NoOp']
+
+suite = unittest.TestLoader().loadTestsFromTestCase(TestGBFS_Agent)
+unittest.TextTestRunner().run(suite)
+class A_Star_Agent(GBFS_Agent):
+    def __init__(self, goal_position, env=None):
+        super().__init__(goal_position=goal_position, env=env)
+
+    def heuristic(self, position, steps_taken=0):
+        x, y = position
+        gx, gy = self.goal_position
+        h = abs(x - gx) + abs(y - gy)
+        return steps_taken + h
+
+    def plan_path(self, start, goal):
+        pq = PriorityQueue()
+        pq.put((self.heuristic(start, 0), 0, start))
+        came_from = {start: None}
+        g_costs = {start: 0}
+        visited = set()
+
+        while not pq.empty():
+            f, g, current = pq.get()
+
+            if current in visited:
+                continue
+            visited.add(current)
+
+            if self.env is not None:
+                self.env.mark_explored(current)
+                self.env.display()
+
+            if current == goal:
+                path_positions = []
+                cur = current
+                while cur is not None:
+                    path_positions.append(cur)
+                    cur = came_from[cur]
+                path_positions.reverse()
+                actions = []
+                for i in range(len(path_positions)-1):
+                    actions.append(self.get_direction(path_positions[i], path_positions[i+1]))
+                return actions
+
+            for neighbor in self.get_neighbors(current):
+                if self.env is not None:
+                    if not (0 <= neighbor[0] < self.env.width and 0 <= neighbor[1] < self.env.height):
+                        continue
+                    if not self.env.is_valid_position(neighbor):
+                        continue
+                tentative_g = g_costs[current] + 1
+                if neighbor not in g_costs or tentative_g < g_costs[neighbor]:
+                    g_costs[neighbor] = tentative_g
+                    came_from[neighbor] = current
+                    f_cost = self.heuristic(neighbor, tentative_g)
+                    pq.put((f_cost, tentative_g, neighbor))
+        return []
+goal_pos = (4, 4)
+env = Environment(
+    width=5,
+    height=5,
+    dirt_positions=[],
+    obstacle_positions=[(2, 2), (2, 3)],
+    goal_positions=[goal_pos],
+    sleep_time=0
+)
+
+class TestA_Star_Agent(unittest.TestCase):
+    def test_utility(self):
+        agent = A_Star_Agent(goal_position=goal_pos)
+        position = (0, 0)
+        steps_taken = 0
+        utility = agent.heuristic(position, steps_taken)
+        assert isinstance(utility, (int, float))
+
+    def test_act(self):
+        agent = A_Star_Agent(goal_position=goal_pos, env=env)
+        position = (0, 0)
+        action = agent.act(position)
+        assert action in ['Up', 'Down', 'Left', 'Right', 'NoOp']
+
+suite = unittest.TestLoader().loadTestsFromTestCase(TestA_Star_Agent)
+unittest.TextTestRunner().run(suite)
+# Interaction example for GBFS and A* (env_2 demonstrates A* optimal vs GBFS non-optimal)
+goal_pos = (11, 6)
+env_2 = Environment(
+    width=12,
+    height=7,
+    dirt_positions=[],
+    obstacle_positions=[(4, 0),
+                        (0, 1), (1, 1), (2, 1), (4, 1), (6, 1), (7, 1), (8, 1), (9, 1), (10, 1),
+                        (0, 2), (4, 2), (10, 2),
+                        (0, 3), (2, 3), (4, 3), (5, 3), (6, 3), (7, 3), (8, 3), (10, 3),
+                        (0, 4), (2, 4), (10, 4),
+                        (0, 5), (2, 5), (3, 5), (4, 5), (5, 5), (6, 5), (7, 5), (8, 5), (9, 5), (10, 5),
+                        (0, 6)
+                       ],
+    goal_positions=[goal_pos],
+    sleep_time=0
+)
+env = env_2
+
+# Choose agent
+agent = GBFS_Agent(goal_position=goal_pos, env=env)
+# agent = A_Star_Agent(goal_position=goal_pos, env=env)
+
+steps = 0
+max_steps = 100
+while not env.check_goal() and steps < max_steps:
+    print(f"Step {steps + 1}: Agent at {env.agent_position}")
+    env.display()
+    position = env.agent_position
+    action = agent.act(position)
+    print("Action:", action)
+    if action == "NoOp":
+        break
+    if action == "Suck":
+        env.clean_dirt()
+    else:
+        env.update_agent_position(action)
+    steps += 1
+
+if env.check_goal():
+    env.display()
+    print(f"Agent reached the goal in {steps} steps.")
+else:
+    print(f"Agent did not reach the goal within {max_steps} steps.")
+Analysis and Answers
+Q5: Does the agent find the shortest path to the goal?
+
+BFS: Yes.
+DFS: No.
+Q6: BFS vs DFS: BFS uses more memory but finds shortest path; DFS uses less memory but may not be optimal.
+
+Q7: GBFS vs A: GBFS may not be optimal; A uses g+h and is optimal with an admissible heuristic.
+
+Q8: Heuristics guide search; Manhattan distance is admissible for grid movement.
